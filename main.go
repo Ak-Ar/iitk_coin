@@ -112,14 +112,18 @@ func signuphandler(w http.ResponseWriter, r *http.Request) {
 		t, _ := template.ParseFiles("signup.gtpl")
 		t.Execute(w, nil)
 	} else {
-		r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			fmt.Fprintf(w, "ParseForm() err: %v", err)
+			return
+		}
+
 		rn := r.FormValue("rollno")
 		en, _ := strconv.Atoi(rn)
 		n := r.FormValue("username")
 		e := r.FormValue("emailid")
 		var hashedPassword, err = hashPassword(r.FormValue("password"))
 		if err != nil {
-			println(fmt.Println("Error hashing password"))
+			println(fmt.Println("Error hashing password: ", err))
 			return
 		}
 		database(en, n, hashedPassword, e)
@@ -143,28 +147,30 @@ func login(w http.ResponseWriter, r *http.Request) {
 	var savedPassword string
 	for rows.Next() {
 		rows.Scan(&savedRollno, &savedPassword)
-		if savedRollno != creds.Username && !(doPasswordsMatch(savedPassword, creds.Password)) {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
+		if savedRollno == creds.Username {
+			if !(doPasswordsMatch(savedPassword, creds.Password)) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			expirationTime := time.Now().Add(2 * time.Minute)
+			claims := &Claims{
+				Username: creds.Username,
+				StandardClaims: jwt.StandardClaims{
+					ExpiresAt: expirationTime.Unix(),
+				},
+			}
+			token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+			tokenString, err := token.SignedString(jwtKey)
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:    "token",
+				Value:   tokenString,
+				Expires: expirationTime,
+			})
 		}
-		expirationTime := time.Now().Add(2 * time.Minute)
-		claims := &Claims{
-			Username: creds.Username,
-			StandardClaims: jwt.StandardClaims{
-				ExpiresAt: expirationTime.Unix(),
-			},
-		}
-		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-		tokenString, err := token.SignedString(jwtKey)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		http.SetCookie(w, &http.Cookie{
-			Name:    "token",
-			Value:   tokenString,
-			Expires: expirationTime,
-		})
 
 	}
 
