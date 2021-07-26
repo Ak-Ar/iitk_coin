@@ -58,7 +58,7 @@ type Claims struct {
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////                        DATABASE STRUCTURES                     /////////////////////////////////////////////////
+/////////                        DATABASE FUNCTIONS AND DECLARATION                ///////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -84,7 +84,7 @@ func database(rollno int, name string, password string, emailid string, coins fl
 	fmt.Println("opening database")
 	createtable(db)
 	fmt.Println("forming table if not exists")
-	insertingdata := `INSERT INTO student(rollno,name,password,emailid,coins) VALUES (?,?,?,?,?)`
+	insertingdata := `INSERT INTO student(rollno,name,password,emailid,coins,tax, time) VALUES (?,?,?,?,?)`
 	statement, err := db.Prepare(insertingdata)
 	statement.Exec(rollno, name, password, emailid, coins)
 	if err != nil {
@@ -94,10 +94,32 @@ func database(rollno int, name string, password string, emailid string, coins fl
 	defer db.Close()
 }
 
+func transactiontable() {
+	db, err := sql.Open("sqlite3", "./data.db")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	fmt.Println("forming table if not exists")
+	creatingtable := `CREATE TABLE IF NOT EXISTS history(
+		"ID" integer NOT NULL PRIMARY KEY AUTOINCREMENT,
+		"SENDER" TEXT NOT NULL,
+		"RECEPIENT" TEXT NOT NULL,
+		"AMOUNT" REAL NOT NULL,
+		"TAX" REAL,
+		"REASON" TEXT,
+		"TIME" TEXT);`
+	statement, err := db.Prepare(creatingtable)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	statement.Exec()
+	defer db.Close()
+}
+
 func createtable(db *sql.DB) {
 	creatingtable := `CREATE TABLE IF NOT EXISTS student(
 		"id" integer NOT NULL PRIMARY KEY AUTOINCREMENT,
-		"rollno" TEXT NOT NULL ,
+		"rollno" TEXT NOT NULL,
 		"name" TEXT NOT NULL,
 		"password" TEXT NULL,
 		"emailid" TEXT NULL,
@@ -199,44 +221,88 @@ func batch(rollno string) int {
 	return en
 }
 
-func importantMembers(rollno string) bool {
-	file1, err := os.Open("coreteam.txt")
-	if err != nil {
-		log.Fatalf("failed opening file: %s", err)
-	}
-	file2, err := os.Open("AH.txt")
-	if err != nil {
-		log.Fatalf("failed opening file: %s", err)
-	}
-	file3, err := os.Open("gensec.txt")
-	if err != nil {
-		log.Fatalf("failed opening file: %s", err)
-	}
-	scanner1 := bufio.NewScanner(file1)
-	scanner1.Split(bufio.ScanLines)
-	for scanner1.Scan() {
-		if rollno == scanner1.Text() {
-			return true
+func importantMembers(rollno string, check int8) bool {
+	switch check {
+	case 1:
+		file1, err := os.Open("coreteam.txt")
+		if err != nil {
+			log.Fatalf("failed opening file: %s", err)
 		}
-	}
-	file1.Close()
-	scanner2 := bufio.NewScanner(file2)
-	scanner2.Split(bufio.ScanLines)
-	for scanner2.Scan() {
-		if rollno == scanner2.Text() {
-			return true
+		file2, err := os.Open("AH.txt")
+		if err != nil {
+			log.Fatalf("failed opening file: %s", err)
 		}
-	}
-	file2.Close()
-	scanner3 := bufio.NewScanner(file3)
-	scanner3.Split(bufio.ScanLines)
-	for scanner3.Scan() {
-		if rollno == scanner3.Text() {
-			return true
+		file3, err := os.Open("gensec.txt")
+		if err != nil {
+			log.Fatalf("failed opening file: %s", err)
 		}
+		scanner1 := bufio.NewScanner(file1)
+		scanner1.Split(bufio.ScanLines)
+		for scanner1.Scan() {
+			if rollno == scanner1.Text() {
+				return true
+			}
+		}
+		file1.Close()
+		scanner2 := bufio.NewScanner(file2)
+		scanner2.Split(bufio.ScanLines)
+		for scanner2.Scan() {
+			if rollno == scanner2.Text() {
+				return true
+			}
+		}
+		file2.Close()
+		scanner3 := bufio.NewScanner(file3)
+		scanner3.Split(bufio.ScanLines)
+		for scanner3.Scan() {
+			if rollno == scanner3.Text() {
+				return true
+			}
+		}
+		file3.Close()
+
+	case 2:
+		file2, err := os.Open("AH.txt")
+		if err != nil {
+			log.Fatalf("failed opening file: %s", err)
+		}
+		file3, err := os.Open("gensec.txt")
+		if err != nil {
+			log.Fatalf("failed opening file: %s", err)
+		}
+		scanner2 := bufio.NewScanner(file2)
+		scanner2.Split(bufio.ScanLines)
+		for scanner2.Scan() {
+			if rollno == scanner2.Text() {
+				return true
+			}
+		}
+		file2.Close()
+		scanner3 := bufio.NewScanner(file3)
+		scanner3.Split(bufio.ScanLines)
+		for scanner3.Scan() {
+			if rollno == scanner3.Text() {
+				return true
+			}
+		}
+		file3.Close()
+
+	case 3:
+		file1, err := os.Open("coreteam.txt")
+		if err != nil {
+			log.Fatalf("failed opening file: %s", err)
+		}
+		scanner1 := bufio.NewScanner(file1)
+		scanner1.Split(bufio.ScanLines)
+		for scanner1.Scan() {
+			if rollno == scanner1.Text() {
+				file1.Close()
+				return true
+			}
+		}
+		file1.Close()
+
 	}
-	file3.Close()
-	fmt.Printf("admin access denied \n")
 	return false
 }
 
@@ -256,7 +322,7 @@ func signuphandler(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(w, "ParseForm() err: %v", err)
 			return
 		}
-
+		transactiontable() //creating transaaction table to keep a record about the transactions
 		rn := r.FormValue("rollno")
 		en, _ := strconv.Atoi(rn)
 		n := r.FormValue("username")
@@ -282,6 +348,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	transactiontable()
 	rows, _ := db.Query("SELECT rollno, password FROM student")
 	var savedRollno string
 	var savedPassword string
@@ -315,6 +382,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 }
+
 func welcome(w http.ResponseWriter, r *http.Request) {
 	rollno := authentication(w, r)
 	if rollno != -1 {
@@ -326,7 +394,7 @@ func welcome(w http.ResponseWriter, r *http.Request) {
 
 func awarding(w http.ResponseWriter, r *http.Request) {
 	adminRoll := strconv.Itoa(authentication(w, r))
-	if importantMembers(adminRoll) {
+	if importantMembers(adminRoll, 1) {
 		fmt.Printf("admin %s is logged in \n", adminRoll)
 
 		var coins Awarding
@@ -334,6 +402,23 @@ func awarding(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
+		}
+		if coins.Rollno == adminRoll {
+			fmt.Printf("Failure!awarding coin to own account\n")
+			fmt.Fprintf(w, "u cannot award coins to yourself\n")
+			return
+		}
+		if importantMembers(coins.Rollno, 2) {
+			fmt.Printf("accounts of gensec and ah members are freezed in the their tenure \n")
+			fmt.Fprintf(w, "accounts of gensec and ah members are freezed in the their tenure \n")
+			return
+		}
+		if importantMembers(coins.Rollno, 3) {
+			if !(importantMembers(adminRoll, 2)) {
+				fmt.Printf("coins can be awarded to a core team member is possible only by gensec or AH\n")
+				fmt.Fprintf(w, "coins can be awarded to a core team member is possible only by gensec or AH\n")
+				return
+			}
 		}
 		db, err := sql.Open("sqlite3", "./data.db")
 		if err != nil {
@@ -346,25 +431,24 @@ func awarding(w http.ResponseWriter, r *http.Request) {
 			fmt.Println(err)
 		}
 		fmt.Println("ok1")
-		rows, _ := db.Query("SELECT rollno, coins FROM student")
-		var savedrollno string
-		var coin float32
-		defer rows.Close()
-		fmt.Println("user to be find", coins.Rollno)
-		for rows.Next() {
-			rows.Scan(&savedrollno, &coin)
-			fmt.Println("current username ", savedrollno)
-			if savedrollno == coins.Rollno {
-				fmt.Println("found user")
-				_, err := db.Exec("UPDATE student SET coins = coins + ? WHERE rollno = ?", coins.Coin, coins.Rollno)
-				if err != nil {
-					tx.Rollback()
-					log.Fatalln(err.Error())
-				}
-				fmt.Println("awarded ", coins.Coin, "to the user specified")
-
-			}
+		if signedUp(coins.Rollno) == 0 {
+			fmt.Printf("User has not signed up\n")
+			return
 		}
+		fmt.Printf("user %s is signed up \n", coins.Rollno)
+		fmt.Println("user to be find", coins.Rollno)
+		_, err = db.Exec("UPDATE student SET coins = coins + ? WHERE rollno = ?", coins.Coin, coins.Rollno)
+		if err != nil {
+			tx.Rollback()
+			log.Fatalln(err.Error())
+		}
+		fmt.Println("awarded ", coins.Coin, "to the user specified")
+		_, err = db.Exec("INSERT INTO history(SENDER, RECEPIENT, AMOUNT,TAX, REASON,TIME) VALUES (?,?,?,?,?,?)", adminRoll, coins.Rollno, coins.Coin, 0.0, "award", time.Now().String())
+		if err != nil {
+			fmt.Println("Error3")
+			tx.Rollback()
+		}
+		fmt.Printf("transaction history recorded\n")
 		tx.Commit()
 		defer db.Close()
 		fmt.Println("adding coins successful")
@@ -376,21 +460,31 @@ func transferCoins(w http.ResponseWriter, r *http.Request) {
 	userRoll := strconv.Itoa(Roll)
 	var transferData Awarding
 	err := json.NewDecoder(r.Body).Decode(&transferData)
-
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 	fmt.Printf("logged in user roll: %s \n", userRoll)
+	if userRoll == transferData.Rollno {
+		fmt.Printf("FAILURE!! transferring to own account\n")
+		fmt.Fprintf(w, "You cannot transfer coins to your own account\n")
+		return
+	}
+	if importantMembers(transferData.Rollno, 1) {
+		fmt.Printf("transfer coins to gensec , AH or core team members are not possible\n")
+		fmt.Fprintf(w, "transfer coins  to gensec , AH or core team members are not possible\n ")
+		return
+	}
+
 	fmt.Printf("recepient data roll no : %s coins to be transferred : %g \n", transferData.Rollno, transferData.Coin)
 	db, err := sql.Open("sqlite3", "./data.db")
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	fmt.Printf("database accessed")
+	fmt.Printf("database accessed\n")
 	db.Exec("PRAGMA journal_mode=WAL;")
 	if signedUp(transferData.Rollno) == 0 {
-		fmt.Printf("User has not signed up")
+		fmt.Printf("User has not signed up\n")
 		return
 	}
 	fmt.Printf("user %s is signed up \n", transferData.Rollno)
@@ -422,16 +516,20 @@ func transferCoins(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			fmt.Println("Error1")
 			tx.Rollback()
-			return
 		}
 		fmt.Printf("amount deducted \n")
 		_, err = db.Exec("UPDATE student SET coins = coins + ? WHERE rollno = ?", transferData.Coin, transferData.Rollno)
 		if err != nil {
 			fmt.Println("Error2")
 			tx.Rollback()
-			return
 		}
 		fmt.Printf("amount added")
+		_, err = db.Exec("INSERT INTO history(SENDER, RECEPIENT, AMOUNT,TAX, REASON,TIME) VALUES (?,?,?,?,?,?)", userRoll, transferData.Rollno, transferData.Coin, tax, "transfer", time.Now().String())
+		if err != nil {
+			fmt.Println("Error3")
+			tx.Rollback()
+		}
+		fmt.Printf("transaction history recorded\n")
 		err = tx.Commit()
 		if err != nil {
 			fmt.Println(err)
