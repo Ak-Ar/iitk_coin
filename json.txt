@@ -1,0 +1,17 @@
+{
+    "username" : "200082", 
+    "password" : "a"
+}
+
+{
+    "rollno" : "200082", 
+    "awardingcoins" : 1000
+}
+
+{
+    "product" : "headphones", 
+    "cost" : 100,
+    "status" : "in stock",
+    "quantity" : 100,
+    "option" : 1
+}

@@ -63,10 +63,11 @@ type Item struct {
 
 type stat struct {
 	Status string `json:"status"`
-	rollno string `josn:"rollno"`
+	Rollno string `josn:"rollno"`
 }
 type Request struct {
-	item string `json:"item"`
+	Item     string `json:"item"`
+	Quantity int    `json:"quantity"`
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,7 +104,7 @@ func database(rollno int, name string, password string, emailid string, coins fl
 	fmt.Println("opening database")
 	createtable(db)
 	fmt.Println("forming table if not exists")
-	insertingdata := `INSERT INTO student(rollno,name,password,emailid,coins,tax, time) VALUES (?,?,?,?,?)`
+	insertingdata := `INSERT INTO student(rollno,name,password,emailid,coins) VALUES (?,?,?,?,?)`
 	statement, err := db.Prepare(insertingdata)
 	statement.Exec(rollno, name, password, emailid, coins)
 	if err != nil {
@@ -118,12 +119,13 @@ func redeem() {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
-	fmt.Println("creating table redeem if not exists")
-	creatingtable := `CREATE TABLE IF NOT EXISTS redeem(
+	fmt.Println("creating table redemption if not exists")
+	creatingtable := `CREATE TABLE IF NOT EXISTS redemption(
 		"ID" integer NOT NULL PRIMARY KEY AUTOINCREMENT,
-		"HOST" TEXT ,
+		"HOST" TEXT NOT NULL ,
 		"AWARDEE" TEXT NOT NULL,
 		"ITEM" TEXT NOT NULL ,
+		"QUANTITY" integer NOT NULL,
 		"COST" REAL NOT NULL,
 		"STATUS" TEXT NOT NULL);`
 	statement, err := db.Prepare(creatingtable)
@@ -131,6 +133,7 @@ func redeem() {
 		log.Fatal(err.Error())
 	}
 	statement.Exec()
+	fmt.Printf("creation succesful")
 	defer db.Close()
 }
 
@@ -143,7 +146,7 @@ func additemstable() {
 	creatingtable := `CREATE TABLE IF NOT EXISTS products(
 		"ID" integer NOT NULL PRIMARY KEY AUTOINCREMENT,
 		"PRODUCT" TEXT NOT NULL,
-		"COINS" TEXT NOT NULL,
+		"COINS" REAL NOT NULL,
 		"AVAILABLE_STATUS" TEXT NOT NULL, 
 		"QUANTITY" INTEGER );`
 	statement, err := db.Prepare(creatingtable)
@@ -203,11 +206,13 @@ func authentication(w http.ResponseWriter, r *http.Request) int {
 	c, err := r.Cookie("token")
 	if err != nil {
 		if err == http.ErrNoCookie {
+			fmt.Printf("ok1")
 			w.WriteHeader(http.StatusUnauthorized)
 			return -1
 
 		}
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Printf("ok2")
 		return -1
 
 	}
@@ -222,13 +227,16 @@ func authentication(w http.ResponseWriter, r *http.Request) int {
 	if err != nil {
 		if err == jwt.ErrSignatureInvalid {
 			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Printf("ok3")
 			return -1
 		}
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Printf("ok4")
 		return -1
 	}
 	if !tkn.Valid {
 		w.WriteHeader(http.StatusUnauthorized)
+		fmt.Printf("ok5")
 		return -1
 	}
 	roll, _ := strconv.Atoi(claims.Username)
@@ -419,7 +427,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
 				return
 			}
-			expirationTime := time.Now().Add(5 * time.Minute)
+			expirationTime := time.Now().Add(20 * time.Minute)
 			claims := &Claims{
 				Username: creds.Username,
 				StandardClaims: jwt.StandardClaims{
@@ -445,6 +453,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 func welcome(w http.ResponseWriter, r *http.Request) {
 	rollno := authentication(w, r)
+	fmt.Printf("ok %d", rollno)
 	if rollno != -1 {
 		w.Write([]byte(fmt.Sprintf("Welcome %d!", rollno)))
 	} else {
@@ -620,26 +629,31 @@ func redeemhandler(w http.ResponseWriter, r *http.Request) {
 	redeem()
 	db, err := sql.Open("sqlite3", "./data.db")
 	if err != nil {
+		fmt.Printf("err 1")
 		log.Fatal(err.Error())
 	}
-
-	rows, _ := db.Query("SELECT PRODUCT ,COINS,QUNATITY FROM products")
+	rows, _ := db.Query("SELECT PRODUCT ,COINS,QUANTITY FROM products")
 	var product string
 	var coins float32
+	var quantity int
 	for rows.Next() {
-		rows.Scan(&savedRollno, &availCoins)
-		if savedRollno == rollno {
-			fmt.Printf("user balance found \n")
-			return availCoins
+		rows.Scan(&product, &coins, &quantity)
+		if product == item.Item {
+			fmt.Printf("product found \n")
+			break
 		}
 	}
-
-	_, err = db.Exec("INSERT INTO redeem(AWARDEE,ITEM,COST,STATUS) VALUES(?,?,?,?)", rollno, item.item, cost, "pending")
-	if err != nil {
-		log.Fatal(err.Error())
+	fmt.Printf("ok 33")
+	if item.Quantity < quantity {
+		_, err = db.Exec("INSERT INTO redemption(HOST,AWARDEE,ITEM,QUANTITY,COST,STATUS) VALUES(?,?,?,?,?,?)", "TO BE DECIDED", rollno, item.Item, item.Quantity, coins, "pending")
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		fmt.Printf("Added your request :)\n")
+	} else {
+		fmt.Fprintf(w, "quantity exceeded availibility :/")
 	}
-	fmt.Printf("Added your request :)\n")
-
+	defer db.Close()
 }
 
 func additemhandler(w http.ResponseWriter, r *http.Request) {
@@ -654,6 +668,7 @@ func additemhandler(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&product)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Printf("err 1")
 		return
 	}
 	db, err := sql.Open("sqlite3", "./data.db")
@@ -697,6 +712,37 @@ func statushandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	_, err = db.Exec("UPDATE redeem SET STATUS status = ?, HOST =? WHERE AWARDEE = ?", sta.Status, rollno, sta.rollno)
+	fmt.Printf("ok11\n")
+	rows, _ := db.Query("SELECT AWARDEE , COST, QUANTITY FROM redemption")
+	fmt.Printf("okkk")
+	var awardee string
+	var coins float32
+	var quantity int
+	fmt.Printf("%s rollno", sta.Rollno)
+	for rows.Next() {
+		rows.Scan(&awardee, &coins, &quantity)
+		fmt.Printf("%s rollno %g coins %d quantity\n", awardee, coins, quantity)
+		if awardee == sta.Rollno {
+			fmt.Printf("awardee found \n")
+			break
+		}
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Println(err)
+	}
+	_, err = db.Exec("UPDATE redemption SET STATUS = ?, HOST =?  WHERE AWARDEE = ?", sta.Status, rollno, sta.Rollno)
+	if err != nil {
+		log.Fatal(err.Error())
+		tx.Rollback()
+	}
+	totalCost := float32(quantity) * coins
+	fmt.Printf("%g is the total expenditure", totalCost)
+	_, err = db.Exec("UPDATE student SET coins = coins - ? WHERE rollno=?", totalCost, sta.Rollno)
+	if err != nil {
+		log.Fatal(err.Error())
+		tx.Rollback()
+	}
+	tx.Commit()
 	defer db.Close()
 }
