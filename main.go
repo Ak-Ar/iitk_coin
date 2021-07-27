@@ -26,6 +26,9 @@ func main() {
 	http.HandleFunc("/awarding", awarding)
 	http.HandleFunc("/transfer", transferCoins)
 	http.HandleFunc("/checkbalance", checkBal)
+	http.HandleFunc("/redeem", redeemhandler)
+	http.HandleFunc("/additems", additemhandler)
+	http.HandleFunc("/status", statushandler)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 	fmt.Printf("Starting the server")
 }
@@ -48,6 +51,22 @@ type Awarding struct {
 type Claims struct {
 	Username string `json:"username"`
 	jwt.StandardClaims
+}
+
+type Item struct {
+	Product   string  `json:"product"`
+	Coin      float32 `json:"cost"`
+	Available string  `json:"status"`
+	Quantity  int     `json:"quantity"`
+	Option    int     `json:"option"`
+}
+
+type stat struct {
+	Status string `json:"status"`
+	rollno string `josn:"rollno"`
+}
+type Request struct {
+	item string `json:"item"`
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -91,6 +110,47 @@ func database(rollno int, name string, password string, emailid string, coins fl
 		log.Fatalln(err.Error())
 	}
 	fmt.Println("inserted user information in database")
+	defer db.Close()
+}
+
+func redeem() {
+	db, err := sql.Open("sqlite3", "./data.db")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	fmt.Println("creating table redeem if not exists")
+	creatingtable := `CREATE TABLE IF NOT EXISTS redeem(
+		"ID" integer NOT NULL PRIMARY KEY AUTOINCREMENT,
+		"HOST" TEXT ,
+		"AWARDEE" TEXT NOT NULL,
+		"ITEM" TEXT NOT NULL ,
+		"COST" REAL NOT NULL,
+		"STATUS" TEXT NOT NULL);`
+	statement, err := db.Prepare(creatingtable)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	statement.Exec()
+	defer db.Close()
+}
+
+func additemstable() {
+	db, err := sql.Open("sqlite3", "./data.db")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	fmt.Println("creating table products if not exists")
+	creatingtable := `CREATE TABLE IF NOT EXISTS products(
+		"ID" integer NOT NULL PRIMARY KEY AUTOINCREMENT,
+		"PRODUCT" TEXT NOT NULL,
+		"COINS" TEXT NOT NULL,
+		"AVAILABLE_STATUS" TEXT NOT NULL, 
+		"QUANTITY" INTEGER );`
+	statement, err := db.Prepare(creatingtable)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	statement.Exec()
 	defer db.Close()
 }
 
@@ -488,6 +548,7 @@ func transferCoins(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	fmt.Printf("user %s is signed up \n", transferData.Rollno)
+
 	batch1 := batch(userRoll)
 	batch2 := batch(transferData.Rollno)
 	fmt.Printf("batch of sender: %d and reciepient: %d \n", batch1, batch2)
@@ -546,4 +607,96 @@ func checkBal(w http.ResponseWriter, r *http.Request) {
 	rollno := strconv.Itoa(authentication(w, r))
 	coins := fetchCoins(rollno)
 	fmt.Fprintf(w, "HI %s you have %g coins", rollno, coins)
+}
+
+func redeemhandler(w http.ResponseWriter, r *http.Request) {
+	rollno := strconv.Itoa(authentication(w, r))
+	var item Request
+	err := json.NewDecoder(r.Body).Decode(&item)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	redeem()
+	db, err := sql.Open("sqlite3", "./data.db")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	rows, _ := db.Query("SELECT PRODUCT ,COINS,QUNATITY FROM products")
+	var product string
+	var coins float32
+	for rows.Next() {
+		rows.Scan(&savedRollno, &availCoins)
+		if savedRollno == rollno {
+			fmt.Printf("user balance found \n")
+			return availCoins
+		}
+	}
+
+	_, err = db.Exec("INSERT INTO redeem(AWARDEE,ITEM,COST,STATUS) VALUES(?,?,?,?)", rollno, item.item, cost, "pending")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	fmt.Printf("Added your request :)\n")
+
+}
+
+func additemhandler(w http.ResponseWriter, r *http.Request) {
+	rollno := strconv.Itoa(authentication(w, r))
+	if !(importantMembers(rollno, 1)) {
+		fmt.Fprintf(w, "You are unauthorized to access this page")
+		fmt.Printf("unauthorized access to this page")
+		return
+	}
+	fmt.Printf("%s has logged in with admin tag\n", rollno)
+	var product Item
+	err := json.NewDecoder(r.Body).Decode(&product)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	db, err := sql.Open("sqlite3", "./data.db")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	additemstable()
+	if product.Option == 1 {
+		_, err = db.Exec("INSERT INTO products(PRODUCT,COINS,AVAILABLE_STATUS,QUANTITY) VALUES(?,?,?,?)", product.Product, product.Coin, product.Available, product.Quantity)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		fmt.Printf("Added items to database :)\n")
+	}
+	if product.Option == 2 {
+		_, err = db.Exec("UPDATE products set AVAILABLE_STATUS = ? , QUANTITY =? WHERE PRODUCT =?", product.Available, product.Quantity, product.Product)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+		fmt.Printf("Updated items in database :)\n")
+	}
+	defer db.Close()
+}
+
+func statushandler(w http.ResponseWriter, r *http.Request) {
+	rollno := strconv.Itoa(authentication(w, r))
+	if !(importantMembers(rollno, 1)) {
+		fmt.Fprintf(w, "You are unauthorized to access this page")
+		fmt.Printf("unauthorized access to this page")
+		return
+	}
+	fmt.Printf("%s has logged in with admin tag\n", rollno)
+	redeem()
+	db, err := sql.Open("sqlite3", "./data.db")
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+	var sta stat
+	err = json.NewDecoder(r.Body).Decode(&sta)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	_, err = db.Exec("UPDATE redeem SET STATUS status = ?, HOST =? WHERE AWARDEE = ?", sta.Status, rollno, sta.rollno)
+	defer db.Close()
 }
